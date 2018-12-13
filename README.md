@@ -17,3 +17,5 @@ Performs RRT planning for robot base and steers the base to the goal.
 1. Run the generated ./rrt.x in sig/make.
 
 2. Move the green goal and press animate.
+
+![alt text](https://github.com/harsha336/rrt/blob/master/images/reachable.png)
