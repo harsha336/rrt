@@ -1,0 +1,296 @@
+#include "rrt.h"
+
+RRTGraph::RRTGraph()
+{
+	walls_ = new Walls;
+	alpha_ = 3;
+	maxi_ = 3000;
+}
+
+void RRTGraph::init(GsPnt2 start, float rt, float win_w, float win_h, GsMat *pos)
+{
+	gsout << "RRTGraph::init: Got the matrix: " << gsnl;
+	position_ = pos;
+	root_ = new Node;
+	path_computed_ = false;
+	root_->parent = NULL;
+	root_->p = start;
+	last_node_ = root_;
+	nodes_.push_back(root_);
+	win_width_ = win_w;
+	win_height_ = win_h;
+	reach_thresh_ = rt;
+	new_goal_ = true;
+	robo_= new Robot;
+	robo_->pos = GsVec(start.x, start.y, 0);
+	robo_->m = 2.0f;
+	robo_->vel = GsVec2(0.0f,0.0f);
+	robo_->max_force = 1.0f;
+	robo_->max_speed = 0.5f;
+	robo_->steer_dir = GsVec(0.0f, 0.0f, 0.0f);
+}
+
+void RRTGraph::setGoal(GsVec a)
+{
+	if(new_goal_)
+	{
+		gsout << "Still travelling: " << gsnl;
+		return;
+	}
+	//if(root_)
+        deleteNodes(root_);
+    	nodes_.clear();
+	root_ = new Node;
+    	root_->parent = NULL;
+    	root_->p = pnt(robo_->pos.x, robo_->pos.y);
+	gsout << "Current robot position: " << root_->p << " and " << robo_->pos << gsnl;
+    	last_node_ = root_;
+    	nodes_.push_back(root_);
+	goal_ = pnt(a.x, a.y);
+	new_goal_ = true;
+	gsout << "Goal set to :######## " << new_goal_ << " ######goal: " << goal_ << gsnl;
+}
+
+Node* RRTGraph::getRandomNode()
+{
+	float x = rand() % 201 + (-100);
+	float y = rand() % 201 + (-100);
+	pnt p(x,y);
+	Node *ret;
+	//gsout << "Getting random node: " << p << gsnl;
+	if(x >= -100 && x <= 100 && y >= -100 && y <= 100)
+	{
+		ret = new Node;
+		ret->p = p;
+		gsout << "Returning node: " << ret->p << gsnl;
+		return ret;
+	}
+	return NULL;
+}
+
+Node* RRTGraph::nearestPoint(pnt p)
+{
+	float minDist = 1e9;
+	Node* nearest = NULL;
+	for(int i=0; i<nodes_.size(); i++)
+	{
+		float d = ::dist(p,nodes_[i]->p);
+		if(d < minDist)
+		{
+			minDist = d;
+			nearest = nodes_[i];
+		}
+	}
+	return nearest;
+}
+
+pnt RRTGraph::findConfig(Node *c, Node *c_near)
+{
+	pnt to = c->p;
+	pnt from = c_near->p;
+	pnt inter = to - from;
+	inter = inter / inter.norm();
+	pnt ai(alpha_*inter.x, alpha_*inter.y);
+	pnt ret = from + ai;
+	gsout << "Found config: "<<ret<<gsnl;
+	return ret;
+}
+
+void RRTGraph::addConfig(Node *c_near, Node *c_new)
+{
+	c_new->parent = c_near;
+	c_near->children.push_back(c_new);
+	nodes_.push_back(c_new);
+	last_node_ = c_new;
+	gsout<<"->"<<c_new->p << gsnl;
+}
+
+bool RRTGraph::reached()
+{
+	if(::dist(last_node_->p, goal_) < reach_thresh_)
+	{
+		gsout << "Goal reached" << gsnl;
+		return true;
+	}
+	return false;
+}
+
+void RRTGraph::performRRT(SnLines *pl, SnLines *gl)
+{
+    while(true)
+    {
+	gsout << "RRTGraph::performRRT: Computing rrt!" << gsnl;
+	while(!new_goal_)
+	{
+		gsout << "No goal!" << gsnl;
+	}
+	gsout << "RRTGraph::performRRT: wait is over!" << gsnl;
+	//while(true)
+	for(int i=0;i<3000;i++)
+	{
+		Node *c = getRandomNode();
+		if(c)
+		{
+			Node *c_near = nearestPoint(c->p);
+			gsout<<"Nearest point: " << c_near->p<<gsnl;
+			if(::dist(c->p, c_near->p) > alpha_)
+			{
+				pnt new_config = findConfig(c, c_near);
+				if(walls_->queryIntersection(new_config, c_near->p))
+				{
+					Node *c_new = new Node;
+					c_new->p = new_config;
+					//pl->begin_polyline();
+					//pl->push(c_new->p.x, c_new->p.y, 0.0f);
+					//pl->end_polyline();
+					addConfig(c_near, c_new);
+				}
+			}
+		}
+		if(reached())
+		{
+			break;
+		}
+	}
+	//Node *temp = root_;
+	Node *c;
+	/*std::deque<Node*> q;
+	q.push_back(temp);
+	while(!q.empty())
+	{
+		//pl->begin_polyline();
+		gsout << "Inside queue" << gsnl;
+		pnt cur = q.front()->p;
+		q.pop_front();
+		pl->push(GsVec(cur.x, cur.y, 0.0f));
+		for(int i=0;i<temp->children.size();i++)
+		{
+			gsout << "Inside childern" << gsnl;
+			pnt icur = temp->children[i]->p;
+			pl->push(GsVec(icur.x, icur.y, 0.0f));
+			q.push_back(temp->children[i]);
+		}
+		//pl->polyline();
+	}*/
+	if(reached())
+	{
+		gsout<<"Goal reached!"<<gsnl;
+		c = last_node_;
+	}
+	else
+	{
+		gsout<<"Not reached!"<<gsnl;
+		c = nearestPoint(goal_);
+	}
+	while(c != NULL)
+	{
+		path_.push_back(c);
+		//gl->begin_polyline();
+		gl->push(c->p.x, c->p.y, 0.0f);
+		gl->push(GsColor::blue);
+		//gl->end_polyline();
+		gsout << "Path of the goal: " << c->p << gsnl;
+		//if (c != NULL)
+		//	delete c;
+		c = c->parent;
+	}
+	if(path_.size() > 0)
+	{
+		new_goal_ = false;
+		path_computed_ = true;
+	}
+	gsout << "Start: " << root_->p << " goal: " << goal_ << gsnl;
+	eulerIntegration();
+    }
+}
+
+std::vector<pnt> RRTGraph::getNodePoints()
+{
+	std::vector<pnt> ret;
+	for(int i = 0;i < nodes_.size();i++)
+		ret.push_back(nodes_[i]->p);
+	return ret;
+}
+
+std::vector<pnt> RRTGraph::getPathPoints()
+{
+	std::vector<pnt> ret;
+	for(int i = 0;i < path_.size();i++)
+		ret.push_back(path_[i]->p);
+	return ret;
+}
+
+void RRTGraph::eulerIntegration()
+{
+    gsout << "RRTGraph::eulerIntegration: " << robo_->pos << " to " <<
+    	goal_ << "New path? " << path_computed_ << gsnl;
+    for(int i=path_.size()-1;i>=0;i--)
+    {
+    	GsVec cur_g(path_[i]->p.x,path_[i]->p.y,0.0f);
+	gsout << "Traversing intermidiate path: " << cur_g << gsnl;
+	double frdt = 1.0/30.0;
+	double t = 0, lt = 0, t0 = gs_time();
+    	while(::dist(robo_->pos,cur_g) > 0.5)
+    	{
+	    	while (t - lt<frdt) t = gs_time() - t0; // wait until it is time for next frame
+		lt = t;
+    		gsout << "++++++++++++++++++++++++++++++++++++++++" << gsnl;
+		gsout << "RRTGraph::eulerIntegration: Distance to goal: " << cur_g <<
+			" is " << ::dist(robo_->pos,cur_g) << gsnl;
+		steering(cur_g);
+		GsVec steering_force = truncate(robo_->steer_dir, robo_->max_force);
+		gsout << "Steering force: " << steering_force << gsnl;
+		GsVec a = steering_force/robo_->m;
+		robo_->vel = truncate(robo_->vel + a, robo_->max_speed);
+		gsout << "Velocity: " << robo_->vel << gsnl;
+		robo_->pos = robo_->pos + robo_->vel;
+		gsout << "Robot position: " << robo_->pos << gsnl;
+		position_->setrans(robo_->pos);
+		gsout << "++++++++++++++++++++++++++++++++++++++++++" << gsnl;
+	}
+    }
+    path_.clear();
+    if(root_)
+    	deleteNodes(root_);
+    nodes_.clear();
+    root_ = new Node;
+    root_->parent = NULL;
+    root_->p = pnt(robo_->pos.x, robo_->pos.y);
+    last_node_ = root_;
+    nodes_.push_back(root_);
+    path_computed_ = false;
+}
+
+void RRTGraph::deleteNodes(Node* root_)
+{
+    for(int i = 0;i < (int)root_->children.size(); i++) {
+        deleteNodes(root_->children[i]);
+    }
+    delete root_;
+}
+
+GsVec RRTGraph::truncate(GsVec v, float t)
+{
+	gsout << "RRTGraph::truncate: v: " << v << "clip: " << t << gsnl;
+	GsVec ret;
+	ret.x = v.x>t?t:v.x;
+	ret.y = v.y>t?t:v.y;
+	ret.z = v.z>t?t:v.z;
+	return ret;
+}
+
+void RRTGraph::steering( GsVec g)
+{
+	gsout << "--------------------------" << gsnl;
+	GsVec target_offset = g - robo_->pos;
+	float distance = magnitude(target_offset);
+	gsout << "Magnitude: " << distance << gsnl;
+	float ramped_speed = robo_->max_speed * (distance/slowing_distance);
+	float clipped_speed = std::min(ramped_speed, robo_->max_speed);
+	gsout << "Clipped speed: " << clipped_speed << gsnl;
+	GsVec desired_vel = (clipped_speed/distance)*target_offset;
+	gsout << "Desired velocity: " << desired_vel << gsnl;
+	robo_->steer_dir = desired_vel - robo_->vel;
+	gsout << "RRTGraph::steering: " << robo_->steer_dir << gsnl;
+	gsout << "----------------------------" << gsnl;
+}
